@@ -12,7 +12,6 @@
     "overlay"
   ],
   "dependencies": {
-    "rvjs-tools": "^1.0.3",
     "rvjs-dom": "^0.2.1",
     "rvjs-animate": "^0.1.0",
     "es6-promise": "^4.1.1"
