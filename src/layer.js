@@ -336,7 +336,7 @@ function CreatePayload(data, layer) {
 
 function UpdateHistory(instance, data) {
 	if (data !== null) {
-		var found = LayerFound(instance, 'instance');
+		var found = LayerFound(instance, 'instance', null);
 		if (found > -1) {
 			var payload = CreatePayload(Object.assign({}, data), Layers[found]);
 			try {
@@ -447,7 +447,7 @@ function LayerInit(name, data) {
 }
 
 function LayerLoadHistory(instance, payload) {
-	var found = LayerFound(instance, "instance");
+	var found = LayerFound(instance, "instance", null);
 
 	// not found
 	if (found < 0) {
@@ -562,7 +562,7 @@ function LayerPreload(name, data, resolve, reject) {
 }
 
 function LayerLoad(name, instance, data, complete) {
-	var found = LayerFound(name, 'name'),
+	var found = LayerFound(instance, 'instance', null),
 	    wait = 'opacity',
 	    cur = null,
 	    // current layer
@@ -691,7 +691,7 @@ function LayerDestroy(layer, blur, complete) {
 		payload: layer.payload
 	});
 
-	var index = LayerFound(layer.uid, 'uid'),
+	var index = LayerFound(layer.uid, 'uid', null),
 	    // found index
 	close = function close() {
 		try {
