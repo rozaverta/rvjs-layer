@@ -27,9 +27,7 @@ var _componentHistory = require("./component-history");
 
 var _componentHistory2 = _interopRequireDefault(_componentHistory);
 
-var _log = require("./log");
-
-var _log2 = _interopRequireDefault(_log);
+var _rvjsTools = require("rvjs-tools");
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -70,6 +68,7 @@ var IsInit = false;
 var IsInitComplete = false;
 var Reg = {};
 var Initable = {};
+var Singleton = {};
 var Keys = [];
 var InitKeys = [];
 var HtmlLayer = null,
@@ -86,6 +85,7 @@ var Uid = 1;
 var Props = {
 	delay: 300,
 	classNamePrefix: "layer-",
+	dialogClassName: "",
 	escape: true,
 	nativeStyles: true
 };
@@ -141,20 +141,18 @@ function IsContentEditable(e) {
 	return false;
 }
 
-function Call(name, func) {
+function Call(instance, func) {
 	for (var _len = arguments.length, evn = Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
 		evn[_key - 2] = arguments[_key];
 	}
 
-	var layer = Reg[name] || {};
-
-	if (typeof layer[func] !== "function") {
-		return func === 'reload' ? Call.apply(undefined, [name, 'load'].concat(_toConsumableArray(evn))) : void 0;
-	} else if (!evn.length && ~privates.indexOf(name)) {
+	if (typeof instance[func] !== "function") {
+		return func === 'reload' ? Call.apply(undefined, [instance, 'load'].concat(_toConsumableArray(evn))) : void 0;
+	} else if (!evn.length && ~privates.indexOf(func)) {
 		evn = [HtmlLayer];
 	}
 
-	return layer[func].apply(layer, evn);
+	return instance[func].apply(instance, evn);
 }
 
 function Dispatch(event) {
@@ -184,6 +182,7 @@ function DepthTick() {
 		className = wrapClassName + pref + (layer.hidden ? 'hidden' : 'show');
 		if (depth < 4) className += pref + "index-" + (depth + 1);
 		if (depth > 0 && depth < 3) className += pref + "blur";
+		if (Props.dialogClassName) className += " " + Props.dialogClassName;
 
 		layer.element.className = className;
 	}
@@ -299,7 +298,7 @@ function Fade(fade) {
 	var length = Layers.length;
 
 	while (fade > -1 && fade < length) {
-		if (Call(Layers[fade++].name, "fade") === false) {
+		if (Call(Layers[fade++].instance, "fade") === false) {
 			throw new Error("Current layer controller aborted operation");
 		}
 	}
@@ -335,17 +334,17 @@ function CreatePayload(data, layer) {
 
 // history
 
-function UpdateHistory(name, data) {
+function UpdateHistory(instance, data) {
 	if (data !== null) {
-		var found = LayerFound(name, 'name');
+		var found = LayerFound(instance, 'instance');
 		if (found > -1) {
 			var payload = CreatePayload(Object.assign({}, data), Layers[found]);
 			try {
 				IsWait = true;
-				LayerLoadHistory(name, payload);
+				LayerLoadHistory(instance, payload);
 				return payload;
 			} catch (e) {
-				(0, _log2.default)(e);
+				(0, _rvjsTools.Log)(e);
 			} finally {
 				DidComplete();
 			}
@@ -353,10 +352,10 @@ function UpdateHistory(name, data) {
 	}
 }
 
-function CreateHistory(name) {
-	var history = Reg[name].history,
+function CreateHistory(instance) {
+	var history = instance.history,
 	    valid = function valid() {
-		return !IsWait && Layer.name === name;
+		return !IsWait && Layers[Layers.length - 1] === instance;
 	};
 
 	return {
@@ -373,22 +372,22 @@ function CreateHistory(name) {
 		},
 		forward: function forward() {
 			if (valid()) {
-				UpdateHistory(name, history.forward());
+				UpdateHistory(instance, history.forward());
 			}
 		},
 		back: function back() {
 			if (valid()) {
-				UpdateHistory(name, history.back());
+				UpdateHistory(instance, history.back());
 			}
 		},
 		go: function go(index) {
 			if (valid()) {
-				UpdateHistory(name, history.go(index));
+				UpdateHistory(instance, history.go(index));
 			}
 		},
 		replace: function replace(data) {
 			if (valid()) {
-				var copy = UpdateHistory(name, data);
+				var copy = UpdateHistory(instance, data);
 				if (copy) {
 					history.replace(copy);
 				}
@@ -396,7 +395,7 @@ function CreateHistory(name) {
 		},
 		push: function push(data) {
 			if (valid()) {
-				var copy = UpdateHistory(name, data);
+				var copy = UpdateHistory(instance, data);
 				if (copy) {
 					history.push(copy);
 				}
@@ -447,22 +446,23 @@ function LayerInit(name, data) {
 	return CopyOf;
 }
 
-function LayerLoadHistory(name, payload) {
-	var found = LayerFound(name, "name");
+function LayerLoadHistory(instance, payload) {
+	var found = LayerFound(instance, "instance");
 
 	// not found
 	if (found < 0) {
 		throw new Error("Layer not found");
 	}
 
+	var layer = Layers[found],
+	    name = layer.name;
+
 	// check update
-	else if (Call(name, "update", payload) === false) {
-			throw new Error("Layer controller '" + name + "' cannot be updated");
-		}
+	if (Call(instance, "update", payload) === false) {
+		throw new Error("Layer controller '" + name + "' cannot be updated");
+	}
 
-	var layer = Layers[found];
-
-	Call(name, "reload", layer.element, payload);
+	Call(instance, "reload", layer.element, payload);
 
 	// update
 	layer.id = payload.id;
@@ -481,6 +481,9 @@ function LayerPreload(name, data, resolve, reject) {
 	if (IsWait) {
 		throw new Error("Load in progress");
 	}
+
+	var single = CheckSingleton(name, data.id),
+	    instance = null;
 
 	IsWait = true;
 	data = Object.assign({}, data); // copy
@@ -503,20 +506,25 @@ function LayerPreload(name, data, resolve, reject) {
 		throw new Error("Global html container is not loaded");
 	}
 
-	var found = LayerFound(name, "name");
+	var found = LayerFound(name, "name", single ? data.id : null);
 
 	Fade(found > -1 ? found + 1 : Layers.length - 1);
 
 	// init layer
-	if (InitKeys.indexOf(name) < 0) {
-		InitKeys.push(name);
-		var init = LayerInit(name, Initable[name]);
+	if (single) {
+		instance = found > -1 ? Layers[found].instance : new Reg[name](LayerInit(name, Initable[name]), name);
+	} else {
+		if (InitKeys.indexOf(name) < 0) {
+			InitKeys.push(name);
+			var init = LayerInit(name, Initable[name]);
 
-		if (typeof Reg[name] === "function") {
-			Reg[name] = new Reg[name](init, name);
-		} else {
-			Call(name, "init", init, name);
+			if (typeof Reg[name] === "function") {
+				Reg[name] = new Reg[name](init, name);
+			} else {
+				Call(Reg[name], "init", init, name);
+			}
 		}
+		instance = Reg[name];
 	}
 
 	// not found
@@ -528,7 +536,7 @@ function LayerPreload(name, data, resolve, reject) {
 		}
 
 		// check focus
-		if (Call(name, "focus", data) === false) {
+		if (Call(instance, "focus", data) === false) {
 			throw new Error("Layer controller '" + name + "' cannot be focused");
 		}
 	} else {
@@ -539,21 +547,21 @@ function LayerPreload(name, data, resolve, reject) {
 		}
 
 		// check update
-		if (Call(name, "update", data) === false) {
+		if (Call(instance, "update", data) === false) {
 			throw new Error("Layer controller '" + name + "' cannot be updated");
 		}
 	}
 
 	LayerOpen(function () {
 		try {
-			LayerLoad(name, data, resolve);
+			LayerLoad(name, instance, data, resolve);
 		} catch (e) {
 			reject(e);
 		}
 	});
 }
 
-function LayerLoad(name, data, complete) {
+function LayerLoad(name, instance, data, complete) {
 	var found = LayerFound(name, 'name'),
 	    wait = 'opacity',
 	    cur = null,
@@ -561,15 +569,14 @@ function LayerLoad(name, data, complete) {
 	reload = found > -1,
 	    // reload layer
 	renewed = !reload,
-	    component = Reg[name],
-	    history = component instanceof _componentHistory2.default;
+	    history = instance instanceof _componentHistory2.default;
 
 	if (history) {
-		var h = component.history;
+		var h = instance.history;
 		if (renewed && h.length > 0) {
 			h.go(h.length - 1);
 		}
-		if (renewed || component.save(data, cur.payload) !== true) {
+		if (renewed || instance.save(data, cur.payload) !== true) {
 			h.replace(data);
 		} else {
 			h.push(data);
@@ -599,11 +606,13 @@ function LayerLoad(name, data, complete) {
 			uid: Uid++,
 			name: name,
 			hidden: false,
+			singleton: Singleton[name],
+			instance: instance,
 			element: _rvjsDom.Element.create({ parent: HtmlLayer, data: { closable: 'true' }, style: { opacity: 0 } })
 		};
 
 		if (history) {
-			cur.history = CreateHistory(name);
+			cur.history = CreateHistory(instance);
 		}
 
 		Layers.push(cur);
@@ -613,9 +622,9 @@ function LayerLoad(name, data, complete) {
 	cur.payload = CreatePayload(data, cur);
 
 	try {
-		Call(name, reload ? "reload" : "load", cur.element, cur.payload);
+		Call(instance, reload ? "reload" : "load", cur.element, cur.payload);
 	} catch (e) {
-		(0, _log2.default)(e);
+		(0, _rvjsTools.Log)(e);
 	}
 
 	Dispatch({
@@ -627,7 +636,6 @@ function LayerLoad(name, data, complete) {
 	});
 
 	var c = function c() {
-		console.log("complete open", cur, cur.payload);
 		complete(cur.payload);
 	};
 
@@ -643,10 +651,10 @@ function LayerLoad(name, data, complete) {
 /**
  * @return {number}
  */
-function LayerFound(value, type) {
+function LayerFound(value, type, id) {
 	// found layer
 	for (var i = 0, length = Layers.length; i < length; i++) {
-		if (Layers[i][type] === value) {
+		if (Layers[i][type] === value && (!id || Layers[i].id === id)) {
 			return i;
 		}
 	}
@@ -662,9 +670,11 @@ function LayerDestroy(layer, blur, complete) {
 		return;
 	}
 
-	var name = layer.name;
+	var name = layer.name,
+	    instance = layer.instance;
 
-	if (layer.killed || blur && Call(name, "blur") === false) {
+
+	if (layer.killed || blur && Call(instance, "blur") === false) {
 		return;
 	}
 
@@ -685,19 +695,19 @@ function LayerDestroy(layer, blur, complete) {
 	    // found index
 	close = function close() {
 		try {
-			Call(name, "close", layer.element, layer.payload);
+			Call(instance, "close", layer.element, layer.payload);
 
 			if (typeof Props.garbage === "function") {
 				try {
 					Props.garbage(layer.element, layer.name);
 				} catch (e) {
-					(0, _log2.default)(e);
+					(0, _rvjsTools.Log)(e);
 				}
 			}
 
 			HtmlLayer.removeChild(layer.element);
 		} catch (e) {
-			(0, _log2.default)(e);
+			(0, _rvjsTools.Log)(e);
 		}
 
 		if (Layers.length) {
@@ -741,13 +751,15 @@ function LayerBack(complete) {
 	}
 
 	var layer = Layers[Layers.length - 1],
-	    name = layer.name;
+	    name = layer.name,
+	    instance = layer.instance;
+
 
 	if (layer.killed) {
 		throw new Error("Layer controller '" + name + "' did kill");
 	}
 
-	if (Call(name, "blur") === false) {
+	if (Call(instance, "blur") === false) {
 		throw new Error("Layer controller '" + name + "' cannot be closed (blur fail)");
 	}
 
@@ -820,6 +832,13 @@ function LayerClose(complete) {
 	}
 }
 
+function CheckSingleton(name, id) {
+	if (Singleton[name] && !id) {
+		throw new Error("Layer controller '" + name + "' is singleton and must use the id property");
+	}
+	return Singleton[name];
+}
+
 var Layer = {
 	get name() {
 		var index = Layers.length;
@@ -857,6 +876,7 @@ var Layer = {
 			Keys.push(name);
 			Reg[name] = object;
 			Initable[name] = data || {};
+			Singleton[name] = typeof object === "function" && object.singleton === true;
 		}
 
 		return Layer;
@@ -871,7 +891,7 @@ var Layer = {
 				args[_key2 - 1] = arguments[_key2];
 			}
 
-			return Call.apply(undefined, [Layer.name, name].concat(args));
+			return Call.apply(undefined, [Layers[Layers.length - 1].instance, name].concat(args));
 		}
 	},
 	notWait: function notWait() {
@@ -902,8 +922,8 @@ var Layer = {
 
 		var not = NotWait(),
 		    t = function t(resolve, reject) {
-
-			var found = LayerFound(name, 'name'),
+			var single = CheckSingleton(name, data.id),
+			    found = LayerFound(name, 'name', single ? data.id : null),
 			    end = Layers.length - 1,
 			    open = false;
 
@@ -921,7 +941,7 @@ var Layer = {
 
 			if (open) {
 				LayerPreload(name, data, resolve, reject);
-			} else if (Call(name, "blur") === false) {
+			} else if (Call(Layers[found].instance, "blur") === false) {
 				throw new Error("Layer controller '" + name + "' cannot be closed (blur fail)");
 			} else {
 				LayerDestroy(Layers[found], false, resolve);
@@ -944,9 +964,12 @@ var Layer = {
 		}).then(DidComplete, DidCompleteError);
 	},
 	focus: function focus(name) {
+		var id = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+
 		var not = NotWait(),
 		    f = function f(complete) {
-			var found = LayerFound(name, 'name'),
+			var single = CheckSingleton(name, id),
+			    found = LayerFound(name, 'name', single ? id : null),
 			    // found layer
 			end = Layers.length - 1;
 

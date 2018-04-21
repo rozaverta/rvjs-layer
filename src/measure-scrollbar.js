@@ -27,4 +27,4 @@ function MeasureScrollbar() {
 	}
 
 	return width;
-}
+};

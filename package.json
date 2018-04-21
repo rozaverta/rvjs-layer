@@ -1,6 +1,6 @@
 {
   "name": "rvjs-layer",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Window layer box",
   "main": "src/layer.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "overlay"
   ],
   "dependencies": {
+    "rvjs-tools": "^1.0.5",
     "rvjs-dom": "^0.2.1",
     "rvjs-animate": "^0.1.0",
     "es6-promise": "^4.1.1"
