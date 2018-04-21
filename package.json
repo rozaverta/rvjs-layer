@@ -11,6 +11,10 @@
     "window",
     "overlay"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rozaverta/rvjs-layer"
+  },
   "dependencies": {
     "rvjs-tools": "^1.0.5",
     "rvjs-dom": "^0.2.1",
