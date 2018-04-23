@@ -699,7 +699,7 @@ function LayerDestroy(layer, blur, complete) {
 
 			if (typeof Props.garbage === "function") {
 				try {
-					Props.garbage(layer.element, layer.name);
+					Props.garbage(layer.element, layer.name, layer.id);
 				} catch (e) {
 					(0, _rvjsTools.Log)(e);
 				}
@@ -1026,6 +1026,36 @@ var Layer = {
 				});
 			} else {
 				LayerBack(resolve);
+			}
+		}).then(DidComplete, DidCompleteError);
+	},
+	closeDialog: function closeDialog(name) {
+		var id = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+
+		var not = NotWait(),
+		    f = function f(complete) {
+			var single = CheckSingleton(name, id),
+			    found = LayerFound(name, 'name', single ? id : null);
+
+			if (found < 0) {
+				complete();
+			} else {
+				LayerDestroy(Layers[found], true, complete);
+			}
+		};
+
+		return new Promise(function (resolve, reject) {
+			if (IsWait) {
+				not();
+				Wait.push(function () {
+					try {
+						f(resolve);
+					} catch (e) {
+						reject(e);
+					}
+				});
+			} else {
+				f(resolve);
 			}
 		}).then(DidComplete, DidCompleteError);
 	},
